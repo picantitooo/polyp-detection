@@ -362,17 +362,41 @@ async def offer(request: OfferRequest):
         if pc.connectionState in ("failed", "closed"):
             await cleanup()
 
+    # Igual que el ejemplo oficial de aiortc: registrar el transceptor y
+    # restringir sus códecs ANTES de setRemoteDescription(offer).
+    # No se modifica el SDP que envía el navegador.
+    capabilities = RTCRtpSender.getCapabilities("video").codecs
+    selected = [
+        codec for codec in capabilities
+        if codec.mimeType.lower() == f"video/{PREFERRED_VIDEO_CODEC.lower()}"
+    ]
+    if not selected:
+        await cleanup()
+        raise HTTPException(
+            status_code=422,
+            detail=f"El servidor no soporta {PREFERRED_VIDEO_CODEC}",
+        )
+
+    video_transceiver = pc.addTransceiver("video", direction="sendrecv")
+    video_transceiver.setCodecPreferences(selected)
+    logger.info(
+        "WEBRTC CODEC ANTES DE OFERTA | codec=%s | perfiles=%d",
+        PREFERRED_VIDEO_CODEC, len(selected),
+    )
+
     @pc.on("track")
     def on_track(track):
         logger.info("Pista entrante: %s", track.kind)
         if track.kind == "video":
+            if session_tracks:
+                logger.warning("Pista adicional ignorada: solo se admite un video")
+                return
             processed = VideoInferenceTrack(track)
             session_tracks.append(processed)
-            sender = pc.addTrack(processed)
-
-            # Guardar el transceptor; la preferencia se aplicará después
-            # de setRemoteDescription, cuando conozcamos la oferta real.
-            logger.info("WEBRTC TRACK | transceptor de salida creado")
+            # Reutilizar el sender del transceptor ya configurado.
+            # addTrack() aquí podría crear/reutilizar otro transceptor.
+            video_transceiver.sender.replaceTrack(processed)
+            logger.info("WEBRTC TRACK | video procesado asociado al transceptor H264")
 
         @track.on("ended")
         async def on_ended():
@@ -385,43 +409,17 @@ async def offer(request: OfferRequest):
             await asyncio.to_thread(get_pipeline)
 
         await pc.setRemoteDescription(
-            RTCSessionDescription(
-                sdp=request.sdp,
-                type=request.type,
-            )
+            RTCSessionDescription(sdp=request.sdp, type=request.type)
         )
 
-        # No alterar la oferta SDP del navegador: aiortc valida y negocia
-        # los códecs. El encoder real se observa en las métricas.
-        # La oferta del navegador suele tener DOS secciones m=video:
-        # una para el video que envía y otra para el que recibe. La primera
-        # puede seguir mostrando VP8 aunque nuestra pista de salida use H264.
-        # Aplicar la preferencia solo al transceptor que ENVÍA la pista anotada.
-        capabilities = RTCRtpSender.getCapabilities("video").codecs
-        selected = [
-            codec for codec in capabilities
-            if codec.mimeType.lower() == f"video/{PREFERRED_VIDEO_CODEC.lower()}"
-        ]
-        if not selected:
-            raise HTTPException(
-                status_code=422,
-                detail=f"El servidor no soporta {PREFERRED_VIDEO_CODEC}",
-            )
+        outgoing = [video_transceiver]
+        if not session_tracks:
+            raise RuntimeError("La oferta no contiene una pista de video entrante")
 
-        outgoing = [
-            transceiver for transceiver in pc.getTransceivers()
-            if transceiver.kind == "video"
-            and transceiver.sender.track in session_tracks
-        ]
-        if not outgoing:
-            raise RuntimeError("No se encontró el transceptor del video procesado")
-
-        for transceiver in outgoing:
-            transceiver.setCodecPreferences(selected)
-            logger.info(
-                "WEBRTC CODEC PREFERIDO | mid=%s | codec=%s | perfiles=%d",
-                transceiver.mid, PREFERRED_VIDEO_CODEC, len(selected),
-            )
+        logger.info(
+            "WEBRTC CODEC PREFERIDO | mid=%s | codec=%s | perfiles=%d",
+            video_transceiver.mid, PREFERRED_VIDEO_CODEC, len(selected),
+        )
 
         answer = await pc.createAnswer()
         await pc.setLocalDescription(answer)
