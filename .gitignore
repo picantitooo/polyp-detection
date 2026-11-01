@@ -29,3 +29,9 @@ vite.config.ts.timestamp-*
 /backend/.venv/
 /backend/__pycache__/
 **/__pycache__/
+videos/
+# Frontend
+/frontend/node_modules/
+/frontend/.svelte-kit/
+/frontend/build/
+/frontend/.output/
