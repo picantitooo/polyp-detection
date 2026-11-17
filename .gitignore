@@ -35,3 +35,10 @@ videos/
 /frontend/.svelte-kit/
 /frontend/build/
 /frontend/.output/
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
