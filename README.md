@@ -40,3 +40,13 @@ npm run build
 You can preview the production build with `npm run preview`.
 
 > To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+
+
+## Staging WebRTC / TURN (Fase 7C)
+
+La configuración de TURN REST efímero para navegador y backend privado se describe
+en [infra/ansible/README.md](infra/ansible/README.md#fase-7c-turn-rest), junto con
+variables, puertos, orden Terraform → build/push → Ansible y pruebas locales.
+El secreto compartido permanece en SSM SecureString y en el state remoto cifrado;
+no hay output del secreto. HTTP sirve para demo con archivo; HTTPS es obligatorio
+antes de usar cámara clínica real.
