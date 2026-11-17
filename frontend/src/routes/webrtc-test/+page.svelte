@@ -2,7 +2,9 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
 
-  const API_URL = 'http://localhost:8000';
+  import { PUBLIC_API_URL } from '$env/static/public';
+  import { fetchIceServers, turnConnectivityError } from '$lib/webrtc/ice';
+  const API_URL = (PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 
   // Referencias a los elementos de video.
   let localVideo: HTMLVideoElement;
@@ -97,8 +99,10 @@
       await localVideo.play();
 
       // 2. Crear conexión WebRTC.
-      const pc = new RTCPeerConnection({
-        iceServers: []
+      const iceServers = await fetchIceServers(API_URL, AbortSignal.timeout(15000));
+      const pc = new RTCPeerConnection({ iceServers });
+      pc.addEventListener('icecandidateerror', () => {
+        if (peerConnection === pc) errorMessage = turnConnectivityError;
       });
 
       peerConnection = pc;

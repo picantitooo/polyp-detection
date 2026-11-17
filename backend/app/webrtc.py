@@ -5,13 +5,17 @@ import os
 
 import av
 import cv2
-from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription, RTCRtpSender
+from aiortc import (
+    MediaStreamTrack, RTCPeerConnection, RTCSessionDescription, RTCRtpSender,
+    RTCConfiguration, RTCIceServer,
+)
 from aiortc.mediastreams import MediaStreamError
 from aiortc.codecs import h264 as aiortc_h264
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
 from app.inference.pipeline import PolypInferencePipeline
+from app.turn import get_ice_servers
 
 logger = logging.getLogger("uvicorn.error")
 logger.setLevel(logging.INFO)
@@ -332,12 +336,23 @@ async def _report_session_metrics(
         raise
 
 
+@router.get("/ice-servers")
+async def ice_servers(response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return {"iceServers": get_ice_servers()}
+
+
+def peer_configuration() -> RTCConfiguration:
+    # A fresh identity for the backend, independent of the browser credentials.
+    return RTCConfiguration(iceServers=[RTCIceServer(**server) for server in get_ice_servers()])
+
+
 @router.post("/offer", response_model=AnswerResponse)
 async def offer(request: OfferRequest):
     if request.type != "offer":
         raise HTTPException(status_code=400, detail="Se esperaba una oferta WebRTC.")
 
-    pc = RTCPeerConnection()
+    pc = RTCPeerConnection(configuration=peer_configuration())
     peer_connections.add(pc)
     session_tracks: list[VideoInferenceTrack] = []
     metrics_task: asyncio.Task | None = None
