@@ -1,0 +1,13 @@
+{
+    auto_https off
+}
+
+:80 {
+    handle_path /api/* {
+        reverse_proxy {{ proxy_backend_private_ip }}:8000
+    }
+
+    handle {
+        reverse_proxy {{ proxy_frontend_private_ip }}:3000
+    }
+}

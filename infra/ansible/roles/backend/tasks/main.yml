@@ -1,0 +1,137 @@
+---
+- name: Crear directorio de modelos legible por el contenedor
+  ansible.builtin.file:
+    path: /opt/polyp/models
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Sincronizar exclusivamente los dos modelos mediante el rol IAM de la EC2
+  ansible.builtin.command:
+    argv:
+      - aws
+      - s3
+      - sync
+      - "s3://{{ polyp_model_bucket }}/"
+      - /opt/polyp/models/
+      - --region
+      - "{{ polyp_aws_region }}"
+      - --exclude
+      - "*"
+      - --include
+      - detector.onnx
+      - --include
+      - classifier.onnx
+      - --no-progress
+  register: backend_model_sync
+  changed_when: "'download:' in backend_model_sync.stdout"
+  no_log: true
+
+- name: Asegurar permisos de lectura de ambos modelos descargados
+  ansible.builtin.file:
+    path: "/opt/polyp/models/{{ item }}"
+    state: file
+    owner: root
+    group: root
+    mode: "0644"
+  loop: [detector.onnx, classifier.onnx]
+
+- name: Crear configuración Docker temporal para ECR
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: polyp-backend-ecr-
+  register: backend_docker_config
+
+- name: Descargar imagen backend con autenticación temporal
+  block:
+    - name: Autenticarse en ECR sin mostrar credenciales
+      ansible.builtin.shell: |
+        set -o pipefail
+        aws ecr get-login-password --region {{ polyp_aws_region | quote }} |
+          docker --config {{ backend_docker_config.path | quote }} login \
+            --username AWS --password-stdin {{ polyp_backend_image.split('/')[0] | quote }}
+      args:
+        executable: /bin/bash
+      no_log: true
+      changed_when: false
+
+    - name: Descargar imagen backend indicada por el entorno
+      ansible.builtin.command:
+        argv: [docker, --config, "{{ backend_docker_config.path }}", pull, "{{ polyp_backend_image }}"]
+      register: backend_image_pull
+      changed_when: "'Downloaded newer image' in backend_image_pull.stdout"
+      no_log: true
+  always:
+    - name: Eliminar credenciales temporales de ECR
+      ansible.builtin.file:
+        path: "{{ backend_docker_config.path }}"
+        state: absent
+      changed_when: false
+
+- name: Crear directorio privado del backend
+  ansible.builtin.file:
+    path: /opt/polyp/backend
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Instalar herramientas remotas para TURN y contenedores
+  ansible.builtin.copy:
+    src: "{{ role_path }}/../common/files/{{ item }}"
+    dest: "/opt/polyp/backend/{{ item }}"
+    owner: root
+    group: root
+    mode: "0700"
+  loop: [turn_config.py, polyp_container.py]
+
+- name: Configurar backend sin transferir el secreto al controlador
+  block:
+    - name: Leer SecureString con IAM de la EC2 y crear env temporal 0600
+      ansible.builtin.command:
+        argv:
+          - python3
+          - /opt/polyp/backend/turn_config.py
+          - backend
+          - --parameter
+          - "{{ polyp_turn_parameter_name }}"
+          - --region
+          - "{{ polyp_aws_region }}"
+          - --url
+          - "{{ polyp_turn_url }}"
+          - --dest
+          - /opt/polyp/backend/turn.env
+      no_log: true
+      changed_when: false
+
+    - name: Reconciliar backend con credenciales TURN locales remotas
+      ansible.builtin.command:
+        argv:
+          - python3
+          - /opt/polyp/backend/polyp_container.py
+          - backend
+          - --image
+          - "{{ polyp_backend_image }}"
+          - --origin
+          - "{{ polyp_public_origin }}"
+          - --env-file
+          - /opt/polyp/backend/turn.env
+      register: backend_container
+      changed_when: backend_container.stdout == 'changed'
+      no_log: true
+  always:
+    - name: Eliminar env temporal con el secreto backend
+      ansible.builtin.file:
+        path: /opt/polyp/backend/turn.env
+        state: absent
+      changed_when: false
+      no_log: true
+
+- name: Esperar respuesta saludable del backend
+  ansible.builtin.command: curl -fsS --max-time 10 http://localhost:8000/health
+  register: backend_health
+  changed_when: false
+  retries: 30
+  delay: 2
+  until: backend_health.rc == 0

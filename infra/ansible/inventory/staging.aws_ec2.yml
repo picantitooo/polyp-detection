@@ -1,0 +1,14 @@
+---
+plugin: amazon.aws.aws_ec2
+regions:
+  - us-east-2
+filters:
+  instance-state-name: running
+  tag:Project: polyp
+  tag:Environment: staging
+hostnames:
+  - instance-id
+keyed_groups:
+  - key: ec2_tags.Role
+    prefix: role
+    separator: "_"

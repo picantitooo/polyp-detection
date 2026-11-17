@@ -1,0 +1,49 @@
+---
+- name: Comprobar conectividad de staging mediante SSM
+  hosts: all
+  become: true
+  gather_facts: false
+
+  pre_tasks:
+    - name: Verificar el bucket de transferencias
+      ansible.builtin.assert:
+        that:
+          - ansible_aws_ssm_bucket_name | length > 0
+        fail_msg: Exporta ANSIBLE_SSM_BUCKET antes de ejecutar el playbook.
+
+    - name: Esperar la conexión SSM
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        sleep: 10
+        timeout: 300
+
+  tasks:
+    - name: Consultar hostname
+      ansible.builtin.command: hostname
+      register: connectivity_hostname
+      changed_when: false
+
+    - name: Consultar usuario efectivo
+      ansible.builtin.command: id -un
+      register: connectivity_user
+      changed_when: false
+
+    - name: Consultar distribución y versión
+      ansible.builtin.command: cat /etc/os-release
+      register: connectivity_distribution
+      changed_when: false
+
+    - name: Consultar estado de amazon-ssm-agent
+      ansible.builtin.command: systemctl is-active amazon-ssm-agent
+      register: connectivity_ssm_agent
+      changed_when: false
+      # is-active returns 3 for an inactive service and 4 for an unknown unit.
+      failed_when: connectivity_ssm_agent.rc not in [0, 3, 4]
+
+    - name: Mostrar resultados
+      ansible.builtin.debug:
+        msg:
+          hostname: "{{ connectivity_hostname.stdout }}"
+          usuario_efectivo: "{{ connectivity_user.stdout }}"
+          distribucion: "{{ connectivity_distribution.stdout_lines }}"
+          amazon_ssm_agent: "{{ connectivity_ssm_agent.stdout }}"

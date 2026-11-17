@@ -1,0 +1,66 @@
+---
+- name: Crear configuración Docker temporal para ECR
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: polyp-frontend-ecr-
+  register: frontend_docker_config
+
+- name: Descargar imagen frontend con autenticación temporal
+  block:
+    - name: Autenticarse en ECR sin mostrar credenciales
+      ansible.builtin.shell: |
+        set -o pipefail
+        aws ecr get-login-password --region {{ polyp_aws_region | quote }} |
+          docker --config {{ frontend_docker_config.path | quote }} login \
+            --username AWS --password-stdin {{ polyp_frontend_image.split('/')[0] | quote }}
+      args:
+        executable: /bin/bash
+      no_log: true
+      changed_when: false
+
+    - name: Descargar imagen frontend indicada por el entorno
+      ansible.builtin.command:
+        argv: [docker, --config, "{{ frontend_docker_config.path }}", pull, "{{ polyp_frontend_image }}"]
+      register: frontend_image_pull
+      changed_when: "'Downloaded newer image' in frontend_image_pull.stdout"
+      no_log: true
+  always:
+    - name: Eliminar credenciales temporales de ECR
+      ansible.builtin.file:
+        path: "{{ frontend_docker_config.path }}"
+        state: absent
+      changed_when: false
+
+- name: Consultar contenedor frontend anterior
+  ansible.builtin.command: docker container inspect polyp-frontend
+  register: frontend_previous
+  changed_when: false
+  failed_when: frontend_previous.rc not in [0, 1]
+  no_log: true
+
+- name: Detener y remover frontend anterior si existe
+  ansible.builtin.command: docker container rm --force polyp-frontend
+  when: frontend_previous.rc == 0
+
+- name: Iniciar frontend
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --detach
+      - --restart
+      - unless-stopped
+      - --name
+      - polyp-frontend
+      - -p
+      - "3000:3000"
+      - "{{ polyp_frontend_image }}"
+  no_log: true
+
+- name: Esperar respuesta HTTP del frontend
+  ansible.builtin.command: curl -fsS --max-time 10 http://localhost:3000/
+  register: frontend_health
+  changed_when: false
+  retries: 30
+  delay: 2
+  until: frontend_health.rc == 0

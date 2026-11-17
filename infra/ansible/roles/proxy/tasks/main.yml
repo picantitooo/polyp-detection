@@ -1,0 +1,151 @@
+---
+- name: Obtener direcciones privadas desde el inventario
+  ansible.builtin.set_fact:
+    proxy_backend_private_ip: "{{ hostvars[groups['role_backend'][0]].private_ip_address }}"
+    proxy_frontend_private_ip: "{{ hostvars[groups['role_frontend'][0]].private_ip_address }}"
+  no_log: true
+
+- name: Crear directorio de configuración del proxy
+  ansible.builtin.file:
+    path: /opt/polyp/proxy
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Descargar Caddy para HTTP
+  ansible.builtin.command: docker pull caddy:2-alpine
+  register: proxy_image_pull
+  changed_when: "'Downloaded newer image' in proxy_image_pull.stdout"
+
+- name: Generar Caddyfile con upstreams privados
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: /opt/polyp/proxy/Caddyfile
+    owner: root
+    group: root
+    mode: "0644"
+  diff: false
+
+- name: Validar configuración antes de reemplazar el proxy
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - -v
+      - /opt/polyp/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:2-alpine
+      - caddy
+      - validate
+      - --config
+      - /etc/caddy/Caddyfile
+      - --adapter
+      - caddyfile
+  changed_when: false
+
+- name: Consultar contenedor proxy anterior
+  ansible.builtin.command: docker container inspect polyp-proxy
+  register: proxy_previous
+  changed_when: false
+  failed_when: proxy_previous.rc not in [0, 1]
+  no_log: true
+
+- name: Detener y remover proxy anterior si existe
+  ansible.builtin.command: docker container rm --force polyp-proxy
+  when: proxy_previous.rc == 0
+
+- name: Iniciar proxy HTTP
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --detach
+      - --restart
+      - unless-stopped
+      - --name
+      - polyp-proxy
+      - -p
+      - "80:80"
+      - -v
+      - /opt/polyp/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:2-alpine
+
+- name: Esperar respuesta de la API a través del proxy
+  ansible.builtin.command: curl -fsS --max-time 10 http://localhost/api/health
+  register: proxy_backend_health
+  changed_when: false
+  retries: 30
+  delay: 2
+  until: proxy_backend_health.rc == 0
+
+- name: Esperar respuesta del frontend a través del proxy
+  ansible.builtin.command: curl -fsS --max-time 10 http://localhost/
+  register: proxy_frontend_health
+  changed_when: false
+  retries: 30
+  delay: 2
+  until: proxy_frontend_health.rc == 0
+
+- name: Crear directorio privado de Coturn
+  ansible.builtin.file:
+    path: /opt/polyp/turn
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Instalar herramientas TURN remotas
+  ansible.builtin.copy:
+    src: "{{ role_path }}/../common/files/{{ item }}"
+    dest: "/opt/polyp/turn/{{ item }}"
+    owner: root
+    group: root
+    mode: "0700"
+  loop: [turn_config.py, polyp_container.py, turn_probe.py]
+
+- name: Descargar Coturn antes de modificar su configuración
+  ansible.builtin.command: docker pull coturn/coturn:4.18.0-r0
+  register: turn_image_pull
+  changed_when: "'Downloaded newer image' in turn_image_pull.stdout"
+
+- name: Leer secreto con IAM remoto y validar configuración antes de reemplazar TURN
+  ansible.builtin.command:
+    argv:
+      - python3
+      - /opt/polyp/turn/turn_config.py
+      - proxy
+      - --parameter
+      - "{{ polyp_turn_parameter_name }}"
+      - --region
+      - "{{ polyp_aws_region }}"
+      - --public-ip
+      - "{{ polyp_proxy_public_ip }}"
+      - --private-ip
+      - "{{ polyp_proxy_private_ip }}"
+      - --dest
+      - /opt/polyp/turn/turnserver.conf
+  register: turn_config
+  changed_when: turn_config.stdout == 'changed'
+  no_log: true
+
+- name: Reconciliar Coturn separado de Caddy con red host y configuración read-only
+  ansible.builtin.command:
+    argv:
+      - python3
+      - /opt/polyp/turn/polyp_container.py
+      - proxy
+      - --force
+      - "{{ (turn_config is changed) | ternary('true', 'false') }}"
+  register: turn_container
+  changed_when: turn_container.stdout == 'changed'
+  no_log: true
+
+- name: Verificar STUN y rechazo de TURN anónimo por TCP y UDP
+  ansible.builtin.command:
+    argv: [python3, /opt/polyp/turn/turn_probe.py, "{{ polyp_proxy_private_ip }}"]
+  register: turn_health
+  changed_when: false
+  retries: 15
+  delay: 2
+  until: turn_health.rc == 0
