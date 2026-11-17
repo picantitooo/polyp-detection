@@ -2,12 +2,13 @@
 	import { resolve } from '$app/paths';
 	import { onDestroy } from 'svelte';
 	import { goto, beforeNavigate } from '$app/navigation';
-	import { env } from '$env/dynamic/public';
+	import { PUBLIC_API_URL } from '$env/static/public';
+	import { fetchIceServers, turnConnectivityError } from '$lib/webrtc/ice';
 	import { useSessions } from '$lib/sessions/context.svelte';
 	import { formatDuration, durationSeconds } from '$lib/sessions/model';
 	let { preparing, sessionId }: { preparing: boolean; sessionId: string } = $props();
 	const sessions = useSessions();
-	const apiUrl = (env.PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+	const apiUrl = (PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 	let sourceType = $state<'camera' | 'file'>('camera');
 	let selectedCameraId = $state('');
 	let selectedFile = $state<File | null>(null);
@@ -225,15 +226,22 @@
 		errorMessage = '';
 		if (!recordId) recordId = sessions.create(sourceType).id;
 		stopPeer();
-		const pc = new RTCPeerConnection({ iceServers: [] });
-		peer = pc;
+		let pendingPeer: RTCPeerConnection | null = null;
 		const controller = new AbortController();
 		request = controller;
 		connecting = true;
 		status = 'Negociando conexión con FastAPI...';
 		const timeout = setTimeout(() => controller.abort(), 60000);
-		const valid = () => !destroyed && peer === pc && !controller.signal.aborted;
+		const valid = () => !destroyed && peer === pendingPeer && !controller.signal.aborted;
 		try {
+			const iceServers = await fetchIceServers(apiUrl, controller.signal);
+			if (destroyed || controller.signal.aborted || request !== controller) return;
+			const pc = new RTCPeerConnection({ iceServers });
+			pendingPeer = pc;
+			peer = pc;
+			pc.addEventListener('icecandidateerror', () => {
+				if (peer === pc && !destroyed) errorMessage = turnConnectivityError;
+			});
 			if (preparing) await goto(resolve('/sessions/[id]/live', { id: recordId }));
 			if (!valid()) return;
 			pc.onconnectionstatechange = () => {
@@ -290,18 +298,19 @@
 			annotated = true;
 			status = `WebRTC: ${pc.connectionState}`;
 		} catch (error) {
-			if (peer !== pc || destroyed) return;
+			if (request !== controller || destroyed) return;
+			const aborted = controller.signal.aborted;
 			stopPeer();
 			annotated = false;
 			status = 'Asistencia no disponible';
-			errorMessage = controller.signal.aborted
+			errorMessage = aborted
 				? 'Conexión cancelada o tiempo de espera agotado. Puedes reintentar.'
 				: error instanceof Error
 					? error.message
 					: 'No se pudo conectar con FastAPI.';
 		} finally {
 			clearTimeout(timeout);
-			if (peer === pc) {
+			if (request === controller) {
 				connecting = false;
 				request = null;
 			}

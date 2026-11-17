@@ -1,4 +1,5 @@
 import { getContext, setContext } from 'svelte';
+import { createClientId } from '$lib/utils/client-id';
 import { startRecord, finishRecord, nowIso, type Session } from './model';
 const key = Symbol('sessions');
 export function createSessionContext() {
@@ -12,7 +13,7 @@ export function createSessionContext() {
 		},
 		create(sourceType: Session['sourceType']) {
 			const record: Session = {
-				id: crypto.randomUUID(),
+				id: createClientId(),
 				sourceType,
 				status: 'prepared',
 				createdAt: nowIso(),
