@@ -23,6 +23,14 @@ try {
 			return stream;
 		};
 	});
+	let iceUnavailable = true;
+	await page.route('**/webrtc/ice-servers', (route) =>
+		route.fulfill({
+			status: iceUnavailable ? 503 : 200,
+			headers: { 'Access-Control-Allow-Origin': '*' },
+			json: iceUnavailable ? { detail: 'unavailable' } : { iceServers: [] }
+		})
+	);
 	await page.route('**/webrtc/offer', async (route) => {
 		const headers = {
 			'Access-Control-Allow-Origin': '*',
@@ -56,7 +64,7 @@ try {
 	});
 	await page.goto(process.env.TEST_BASE_URL || 'http://127.0.0.1:5173');
 	await page.getByRole('heading', { name: 'Inicio' }).waitFor();
-	for (const label of ['Hallazgos', 'Evidencia', 'Informes', 'Modelos', 'Configuración']) {
+	for (const label of ['Hallazgos', 'Evidencia', 'Informes']) {
 		await page
 			.getByRole('navigation', {
 				name: label === 'Configuración' ? 'Aplicación' : 'Principal',
@@ -69,6 +77,21 @@ try {
 			.waitFor();
 		await page.getByText('Pendiente de implementar').waitFor();
 	}
+	await page
+		.getByRole('navigation', { name: 'Aplicación', exact: true })
+		.getByRole('link', { name: 'Configuración', exact: true })
+		.click();
+	await page.getByRole('heading', { name: 'Configuración', exact: true }).waitFor();
+	await page.getByLabel('Tema', { exact: true }).waitFor();
+	await page.waitForFunction(() => document.documentElement.dataset.theme !== undefined);
+	await page.getByRole('button', { name: 'Contraer menú', exact: true }).click();
+	await page
+		.getByRole('navigation', { name: 'Principal', exact: true })
+		.waitFor({ state: 'hidden' });
+	await page.getByRole('button', { name: 'Mostrar menú', exact: true }).click();
+	await page
+		.getByRole('navigation', { name: 'Principal', exact: true })
+		.waitFor({ state: 'visible' });
 	await page.getByRole('link', { name: 'Sesiones', exact: true }).click();
 	await page.getByRole('link', { name: 'Nueva sesión', exact: false }).first().click();
 	assert.equal(await page.getByRole('button', { name: 'Iniciar asistencia' }).isDisabled(), true);
@@ -76,6 +99,10 @@ try {
 	await page.waitForFunction(
 		() => document.querySelector('video[aria-label="Fuente de video original"]')?.videoWidth > 0
 	);
+	await page.getByRole('button', { name: 'Iniciar asistencia' }).click();
+	await page.getByText('No se pudo obtener la configuración ICE.', { exact: false }).waitFor();
+	assert.equal(await page.getByRole('button', { name: 'Iniciar asistencia' }).isEnabled(), true);
+	iceUnavailable = false;
 	await page.getByRole('button', { name: 'Iniciar asistencia' }).click();
 	await page.waitForURL('**/live');
 	await page.getByText('Conectado', { exact: true }).waitFor();
