@@ -6,11 +6,13 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
+from app.config import MODEL_DIR
+
 
 # Raíz del proyecto: polyp-detection/
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "detector.onnx"
+DEFAULT_MODEL_PATH = MODEL_DIR / "detector.onnx"
 
 
 @dataclass(frozen=True)

@@ -5,12 +5,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 import onnxruntime as ort
+
+from app.config import MODEL_DIR
 from PIL import Image
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "classifier.onnx"
+DEFAULT_MODEL_PATH = MODEL_DIR / "classifier.onnx"
 
 CLASS_NAMES = ("adenoma", "hiperplasico")
 
@@ -224,3 +226,4 @@ class PolypClassifier:
             )
 
         return results
+    
