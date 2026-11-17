@@ -1,0 +1,37 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: polyp-backend:local
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/models:ro
+    environment:
+      POLYP_MODEL_DIR: /models
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        PUBLIC_API_URL: http://localhost:8000
+    image: polyp-frontend:local
+    ports:
+      - "5173:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
