@@ -1,10 +1,15 @@
 import { getContext, onMount, setContext } from 'svelte';
 
 export const defaults = {
-	theme: 'system',
+	theme: 'light',
 	contrast: 'normal',
 	textSize: 'normal',
 	reducedMotion: false,
+	readingFont: false,
+	readingSpacing: false,
+	highlightLinks: false,
+	defaultVideo: 'annotated',
+	showProcessingStatus: true,
 	palette: 'standard'
 } as const;
 export type Preferences = {
@@ -12,6 +17,11 @@ export type Preferences = {
 	contrast: 'normal' | 'high';
 	textSize: 'normal' | 'large' | 'extra-large';
 	reducedMotion: boolean;
+	readingFont: boolean;
+	readingSpacing: boolean;
+	highlightLinks: boolean;
+	defaultVideo: 'annotated' | 'original';
+	showProcessingStatus: boolean;
 	palette: 'standard' | 'red-green' | 'tritanopia';
 };
 const key = Symbol('display-preferences');
@@ -27,6 +37,10 @@ function parse(value: unknown): Preferences {
 	if (saved.textSize === 'large' || saved.textSize === 'extra-large')
 		result.textSize = saved.textSize;
 	if (typeof saved.reducedMotion === 'boolean') result.reducedMotion = saved.reducedMotion;
+	for (const option of ['readingFont', 'readingSpacing', 'highlightLinks'] as const)
+		result[option] = saved[option] === true;
+	if (saved.defaultVideo === 'original') result.defaultVideo = 'original';
+	if (typeof saved.showProcessingStatus === 'boolean') result.showProcessingStatus = saved.showProcessingStatus;
 	if (saved.palette === 'red-green' || saved.palette === 'tritanopia')
 		result.palette = saved.palette;
 	return result;
@@ -46,6 +60,9 @@ export function createPreferences() {
 		root.dataset.textSize = value.textSize;
 		root.dataset.reducedMotion = String(value.reducedMotion);
 		root.dataset.palette = value.palette;
+		root.dataset.readingFont = String(value.readingFont);
+		root.dataset.readingSpacing = String(value.readingSpacing);
+		root.dataset.highlightLinks = String(value.highlightLinks);
 	}
 	onMount(() => {
 		systemTheme = window.matchMedia('(prefers-color-scheme: dark)');

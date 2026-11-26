@@ -1,62 +1,29 @@
 <script lang="ts">
 	import DisplayPreferences from '$lib/components/DisplayPreferences.svelte';
 	import UserGuide from '$lib/components/UserGuide.svelte';
-	import Placeholder from '$lib/components/Placeholder.svelte';
+	import StationSettings from '$lib/components/StationSettings.svelte';
+	import { page } from '$app/state';
+	import EvidenceRecords from '$lib/components/EvidenceRecords.svelte';
+	import EvidenceIndex from '$lib/components/EvidenceIndex.svelte';
+	import SessionReports from '$lib/components/SessionReports.svelte';
+	import { resolve } from '$app/paths';
 	let { data } = $props();
-	const modules: Record<string, { title: string; description: string; features: string[] }> = {
-		findings: {
-			title: 'Hallazgos',
-			description: 'Observaciones revisadas y vinculadas al procedimiento.',
-			features: [
-				'Revisar eventos de detección.',
-				'Relacionar eventos con una misma lesión.',
-				'Registrar localización, tamaño estimado y observaciones.'
-			]
-		},
-		evidence: {
-			title: 'Evidencia',
-			description: 'Material visual asociado a las sesiones.',
-			features: [
-				'Capturas con referencia temporal.',
-				'Clips seleccionados de eventos.',
-				'Grabaciones con anotaciones sincronizadas.'
-			]
-		},
-		reports: {
-			title: 'Informes',
-			description: 'Resúmenes de asistencia revisados por el médico.',
-			features: [
-				'Preparar un borrador de resumen.',
-				'Revisar hallazgos y evidencia seleccionada.',
-				'Exportar resultados.'
-			]
-		},
-		models: {
-			title: 'Modelos de IA',
-			description: 'Información y trazabilidad de los componentes de inferencia.',
-			features: [
-				'Consultar la versión del detector.',
-				'Consultar la versión del clasificador hiperplásico / adenoma.',
-				'Mostrar compatibilidad y uso previsto. No permite cambiar pesos todavía.'
-			]
-		}
-	};
-	let module = $derived(modules[data.section]);
+ const titles: Record<string,string> = { findings:'Hallazgos', evidence:'Evidencia', reports:'Informes', models:'Modelos de IA', settings:'Configuración', accessibility:'Accesibilidad', help:'Ayuda' };
 </script>
 
-<svelte:head
-	><title
-		>{data.section === 'help'
-			? 'Ayuda'
-			: data.section === 'settings'
-				? 'Configuración'
-				: (module?.title ?? 'Polyp')} · Polyp</title
-	></svelte:head
->
+<svelte:head><title>{titles[data.section]} · EndoSight</title></svelte:head>
 {#if data.section === 'help'}
 	<UserGuide />
 {:else if data.section === 'settings'}
+	<StationSettings />
+{:else if data.section === 'accessibility'}
 	<DisplayPreferences />
-{:else if module}
-	<Placeholder {...module} />
+{:else if page.params.section === 'reports'}
+	<SessionReports />
+{:else if page.params.section === 'evidence'}
+	<EvidenceIndex />
+{:else if page.params.section === 'findings'}
+	<EvidenceRecords mode="findings" />
+{:else}
+	<section class="support-page"><header><h1>Modelos de IA</h1><p class="muted">Componentes de la asistencia experimental.</p></header><div class="panel"><h2>Detección y clasificación</h2><p>El detector señala regiones del video. El clasificador propone las etiquetas hiperplásico o adenoma para revisión del especialista.</p><dl class="settings-metadata"><dt>Versión del detector</dt><dd>Información no disponible</dd><dt>Versión del clasificador</dt><dd>Información no disponible</dd></dl></div><a href={resolve('/settings')}>Volver a Configuración</a></section>
 {/if}

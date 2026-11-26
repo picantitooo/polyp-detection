@@ -1,4 +1,7 @@
 import asyncio
+import base64
+import json
+from datetime import datetime, timezone
 import logging
 import time
 import os
@@ -79,9 +82,11 @@ class VideoInferenceTrack(MediaStreamTrack):
 
     kind = "video"
 
-    def __init__(self, source: MediaStreamTrack):
+    def __init__(self, source: MediaStreamTrack, publish=None):
         super().__init__()
         self.source = source
+        self.publish = publish
+        self.last_evidence_at = float("-inf")
         self.running = True
         self.latest_frame: av.VideoFrame | None = None
         self.latest_frame_id = 0
@@ -166,6 +171,11 @@ class VideoInferenceTrack(MediaStreamTrack):
                 self.last_detection_count = len(self.predictions)
                 self.last_inference_ms = elapsed_ms
                 self.inferred += 1
+                if self.publish and self.predictions:
+                    now = time.monotonic()
+                    if now - self.last_evidence_at >= 3:
+                        self.last_evidence_at = now
+                        self.publish(image, self.predictions, frame.time)
         except asyncio.CancelledError:
             raise
 
@@ -353,6 +363,44 @@ async def offer(request: OfferRequest):
         raise HTTPException(status_code=400, detail="Se esperaba una oferta WebRTC.")
 
     pc = RTCPeerConnection(configuration=peer_configuration())
+    evidence_channel = None
+
+    @pc.on("datachannel")
+    def on_datachannel(channel):
+        nonlocal evidence_channel
+        if channel.label == "detection-evidence":
+            evidence_channel = channel
+
+    def publish_evidence(image, predictions, frame_time):
+        channel = evidence_channel
+        if channel is None or channel.readyState != "open" or channel.bufferedAmount > 131072:
+            return
+        height, width = image.shape[:2]
+        captured_at = datetime.now(timezone.utc).isoformat()
+        try:
+            for prediction in predictions[:3]:
+                det, cls = prediction.detection, prediction.classification
+                left, top = max(0, int(det.x1)), max(0, int(det.y1))
+                right, bottom = min(width, int(det.x2)), min(height, int(det.y2))
+                if left >= right or top >= bottom:
+                    continue
+                crop = image[top:bottom, left:right]
+                scale = min(1, 240 / max(crop.shape[:2]))
+                if scale < 1:
+                    crop = cv2.resize(crop, (max(1, int(crop.shape[1] * scale)),
+                                             max(1, int(crop.shape[0] * scale))), interpolation=cv2.INTER_AREA)
+                ok, jpeg = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                if ok:
+                    channel.send(json.dumps({
+                        "capturedAt": captured_at,
+                        "videoSeconds": float(frame_time) if frame_time is not None else None,
+                        "label": str(cls.label),
+                        "confidence": float(cls.confidence),
+                        "detectionConfidence": float(det.confidence),
+                        "jpeg": base64.b64encode(jpeg.tobytes()).decode("ascii"),
+                    }))
+        except Exception:
+            logger.debug("No se pudo enviar evidencia por WebRTC", exc_info=True)
     peer_connections.add(pc)
     session_tracks: list[VideoInferenceTrack] = []
     metrics_task: asyncio.Task | None = None
@@ -406,7 +454,7 @@ async def offer(request: OfferRequest):
             if session_tracks:
                 logger.warning("Pista adicional ignorada: solo se admite un video")
                 return
-            processed = VideoInferenceTrack(track)
+            processed = VideoInferenceTrack(track, publish_evidence)
             session_tracks.append(processed)
             # Reutilizar el sender del transceptor ya configurado.
             # addTrack() aquí podría crear/reutilizar otro transceptor.
