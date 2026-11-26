@@ -1,9 +1,23 @@
 import { getContext, setContext } from 'svelte';
+import { browser } from '$app/environment';
 import { createClientId } from '$lib/utils/client-id';
-import { startRecord, finishRecord, nowIso, type Session } from './model';
+import { createSession, finishSession, startSession } from '$lib/application/sessions/session-use-cases';
+import type { Session } from '$lib/domain/sessions/session';
+import { createLocalStorageSessionRepository } from '$lib/infrastructure/sessions/local-storage-session-repository';
+
 const key = Symbol('sessions');
+
+function nowIso(): string {
+	return new Date().toISOString();
+}
+
 export function createSessionContext() {
-	let records = $state<Session[]>([]);
+	const repository = browser ? createLocalStorageSessionRepository(window.localStorage) : null;
+	let records = $state<Session[]>(repository?.load() ?? []);
+	function save(nextRecords: Session[]) {
+		records = nextRecords;
+		repository?.save(records);
+	}
 	const store = {
 		get records() {
 			return records;
@@ -12,26 +26,15 @@ export function createSessionContext() {
 			return records.find((record) => record.id === id);
 		},
 		create(sourceType: Session['sourceType']) {
-			const record: Session = {
-				id: createClientId(),
-				sourceType,
-				status: 'prepared',
-				createdAt: nowIso(),
-				startedAt: null,
-				finishedAt: null
-			};
-			records = [record, ...records];
+			const record = createSession({ id: createClientId(), sourceType, now: nowIso() });
+			save([record, ...records]);
 			return record;
 		},
 		start(id: string) {
-			records = records.map((record) =>
-				record.id === id ? startRecord(record, nowIso()) : record
-			);
+			save(startSession(records, id, nowIso()));
 		},
 		finish(id: string) {
-			records = records.map((record) =>
-				record.id === id ? finishRecord(record, nowIso()) : record
-			);
+			save(finishSession(records, id, nowIso()));
 		}
 	};
 	setContext(key, store);
