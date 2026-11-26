@@ -1,120 +1,46 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	let query = $state('');
+	let category = $state('all');
+	let showAll = $state(false);
+	const topics = [
+		{ id: 'start', title: 'Primeros pasos', description: 'Prepara e inicia una sesión', icon: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-2 5 6 4-6 4z' },
+		{ id: 'video', title: 'Video y cámara', description: 'Conecta y configura tu fuente', icon: 'M3 5h13v14H3zM16 10l5-3v10l-5-3' },
+		{ id: 'trouble', title: 'Solucionar problemas', description: 'Resuelve errores comunes', icon: 'M14 6a5 5 0 0 0-6 6L3 17a2 2 0 0 0 3 3l5-5a5 5 0 0 0 6-6l-3 3-3-3z' },
+		{ id: 'privacy', title: 'Privacidad', description: 'Uso y manejo del video', icon: 'M12 2 4 5v6c0 5 3 8 8 11 5-3 8-6 8-11V5zM8 12l3 3 5-6' }
+	];
+	const questions = [
+		{ category: 'start', question: '¿Cómo inicio una sesión?', answer: 'Abre Nueva sesión, selecciona una cámara o archivo autorizado y pulsa Previsualizar. Comprueba la imagen, inicia la asistencia y espera el estado Conectado.' },
+		{ category: 'start', question: '¿Cómo finalizo o detengo la asistencia?', answer: 'Detener asistencia cierra la conexión y mantiene la fuente original. Reintentar vuelve a conectar. Finalizar sesión libera la fuente y abre el detalle.' },
+		{ category: 'video', question: '¿Qué fuente de video puedo usar?', answer: 'Usa Capturadora para una cámara o dispositivo de captura, o Archivo para un video autorizado. El archivo se reproduce en bucle. El navegador debe poder reproducirlo y capturarlo desde canvas.' },
+		{ category: 'video', question: '¿Qué permisos necesita la cámara?', answer: 'Autoriza la cámara en el navegador y el sistema operativo. Fuera de localhost se requiere HTTPS. La cámara se solicita sin audio.' },
+		{ category: 'trouble', question: '¿Qué hago si falla la cámara o el archivo?', answer: 'Comprueba los permisos, la conexión y si otra aplicación usa la cámara. Pulsa Actualizar dispositivos y Previsualizar. Para archivos, comprueba que el navegador soporte el formato.' },
+		{ category: 'trouble', question: '¿Por qué no aparecen anotaciones?', answer: 'Confirma el estado Conectado y selecciona Mostrar anotaciones. Revisa la conexión y los mensajes. La ausencia de marcas no descarta una lesión.' },
+		{ category: 'trouble', question: '¿Qué hago si se interrumpe la conexión?', answer: 'Comprueba la red y el servicio de procesamiento. Si la fuente sigue disponible, pulsa Reintentar asistencia y consulta la imagen original si la anotada se detiene.' },
+		{ category: 'privacy', question: '¿Dónde se guardan mis hallazgos?', answer: 'El historial, los recortes y las revisiones se guardan en este navegador. Evidencia permite consultar recortes y Hallazgos permite agruparlos y registrar una revisión.' },
+		{ category: 'privacy', question: '¿Cómo se maneja el video?', answer: 'Durante la asistencia el video se transmite por WebRTC al servicio de procesamiento. La interfaz no graba el video. Al finalizar, cierra la conexión y libera la fuente.' },
+		{ category: 'privacy', question: '¿Cuál es el alcance de la asistencia?', answer: 'Es un prototipo experimental de apoyo visual. Las anotaciones no constituyen un diagnóstico autónomo y no sustituyen el criterio del especialista.' }
+	];
+	let matching = $derived(questions.filter((item) => (category === 'all' || item.category === category) && (item.question + ' ' + item.answer).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())));
+	let visible = $derived(category === 'all' && !query && !showAll ? matching.filter((item) => ['¿Cómo inicio una sesión?', '¿Por qué no aparecen anotaciones?', '¿Qué hago si falla la cámara o el archivo?', '¿Dónde se guardan mis hallazgos?'].includes(item.question)) : matching);
 </script>
 
-<div class="page-heading">
-	<div>
-		<h1>Ayuda</h1>
-		<p class="muted">Una guía breve para preparar y revisar la asistencia visual.</p>
-	</div>
-</div>
-<div class="guide-content">
-	<section class="experimental-note" aria-labelledby="scope-title">
-		<h2 id="scope-title">Prototipo experimental</h2>
-		<p>
-			Esta plataforma ofrece apoyo a la visualización de video endoscópico con anotaciones
-			experimentales. No reemplaza el criterio clínico ni proporciona un diagnóstico autónomo.
-		</p>
+<svelte:head><title>Centro de ayuda · EndoSight</title></svelte:head>
+<div class="support-page">
+	<header class="support-page-header"><p class="support-kicker">RECURSOS</p><h1>Centro de ayuda</h1><p>Encuentra respuestas para utilizar EndoSight.</p></header>
+	<label class="support-search"><span class="visually-hidden">Buscar en ayuda</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input type="search" placeholder="Buscar en ayuda…" bind:value={query}/></label>
+	<nav class="support-topics" aria-label="Temas de ayuda">
+		{#each topics as topic (topic.id)}
+			<button class:active={category === topic.id} aria-pressed={category === topic.id} onclick={() => (category = category === topic.id ? 'all' : topic.id)}>
+				<span class="support-topic-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d={topic.icon}/></svg></span><span><strong>{topic.title}</strong><small>{topic.description}</small></span><span aria-hidden="true" class="support-chevron">›</span>
+			</button>
+		{/each}
+	</nav>
+	<div class="support-section-heading"><h2>Preguntas frecuentes</h2><button class="text-button" onclick={() => { const reset = category !== 'all' || !!query; category = 'all'; query = ''; showAll = reset ? true : !showAll; }}>{showAll && category === 'all' && !query ? 'Ver principales' : 'Ver todas'}</button></div>
+	<section class="support-faq" aria-label="Preguntas frecuentes">
+		{#each visible as item (item.question)}<details><summary><span>{item.question}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></summary><p>{item.answer}</p></details>
+		{:else}<p class="support-no-results" role="status">No encontramos resultados. Prueba con otras palabras o cambia el tema.</p>{/each}
 	</section>
-	<section class="panel" aria-labelledby="quick-start">
-		<h2 id="quick-start">Guía rápida</h2>
-		<ol class="help-steps">
-			<li>
-				<strong>Crea o abre una sesión.</strong> Entra en
-				<a class="text-link" href={resolve('/sessions/new')}>Nueva sesión</a>
-				para preparar una fuente. En <a class="text-link" href={resolve('/sessions')}>Sesiones</a> puedes
-				abrir el detalle de las sesiones de esta pestaña; el detalle no reinicia la transmisión.
-			</li>
-			<li>
-				<strong>Elige cámara o video.</strong> Usa Capturadora para una cámara o dispositivo de captura;
-				usa Archivo para seleccionar un video autorizado. El archivo se reproduce en bucle.
-			</li>
-			<li>
-				<strong>Prepara la fuente.</strong> Pulsa Previsualizar, concede el permiso de cámara cuando corresponda
-				y confirma que la imagen se mueve y corresponde a la fuente elegida.
-			</li>
-			<li>
-				<strong>Inicia la asistencia.</strong> Pulsa Iniciar asistencia y espera a que el estado indique
-				Conectado.
-			</li>
-			<li>
-				<strong>Revisa conexión y anotaciones.</strong> El encabezado indica Video original o Video con
-				anotaciones. Alterna con Mostrar original / Mostrar anotaciones. Estar conectado no garantiza
-				que haya anotaciones; su ausencia no descarta una lesión.
-			</li>
-			<li>
-				<strong>Detén o finaliza.</strong> Detener asistencia interrumpe el procesamiento y mantiene la
-				fuente original disponible. Reintentar asistencia vuelve a conectar. Finalizar sesión cierra la
-				fuente y abre el detalle.
-			</li>
-		</ol>
-	</section>
-	<section class="panel" aria-labelledby="requirements">
-		<h2 id="requirements">Antes de empezar</h2>
-		<ul class="guide-list">
-			<li>
-				Usa un navegador con soporte de WebRTC y acceso a cámara. Para archivos, también debe poder
-				reproducir el formato y capturar el video desde canvas.
-			</li>
-			<li>
-				Conecta la cámara o capturadora y autoriza su acceso en el navegador y en el sistema
-				operativo.
-			</li>
-			<li>Fuera de localhost, el acceso a cámara requiere HTTPS.</li>
-			<li>La asistencia necesita conexión con el servicio de procesamiento.</li>
-		</ul>
-		<p>
-			Adapta tema, contraste, texto y paleta en <a class="text-link" href={resolve('/settings')}
-				>Configuración visual</a
-			>.
-		</p>
-	</section>
-	<section class="panel" aria-labelledby="troubleshooting">
-		<h2 id="troubleshooting">Solución de problemas</h2>
-		<dl class="troubleshooting">
-			<dt>Sin conexión</dt>
-			<dd>
-				Lee el mensaje de estado. Comprueba la red y que el servicio de procesamiento esté
-				disponible. Si la fuente sigue lista, pulsa Reintentar asistencia. Consulta la imagen
-				original si la anotada parece detenida.
-			</dd>
-			<dt>Fuente no disponible</dt>
-			<dd>
-				Revisa permisos, conexión del dispositivo y si otra aplicación lo está usando. En la
-				preparación, pulsa Actualizar dispositivos y Previsualizar. Para un archivo, comprueba que
-				el navegador pueda reproducirlo. Si la fuente se desconectó durante la sesión, finaliza y
-				prepara una nueva.
-			</dd>
-			<dt>Video sin anotaciones</dt>
-			<dd>
-				Confirma que figura Conectado y que estás mostrando Video con anotaciones. Revisa los
-				mensajes de error. La ausencia de marcas no es un resultado clínico negativo.
-			</dd>
-			<dt>Asistencia detenida</dt>
-			<dd>
-				La fuente original puede seguir visible sin procesamiento. Si deseas continuar y la fuente
-				está disponible, pulsa Reintentar asistencia; para cerrar la fuente, pulsa Finalizar sesión.
-			</dd>
-		</dl>
-	</section>
-	<section class="panel" aria-labelledby="privacy">
-		<h2 id="privacy">Privacidad y manejo de video</h2>
-		<p>
-			Al iniciar la asistencia, el frontend transmite video al servicio de procesamiento mediante
-			WebRTC y muestra el video devuelto. La cámara se solicita sin audio. El frontend no implementa
-			grabación de video; al finalizar, cierra la conexión y libera la fuente.
-		</p>
-		<p>
-			Los datos de las sesiones se mantienen en memoria de la pestaña y se pierden al recargar. Solo
-			las preferencias visuales se guardan en localStorage. Esto no establece cómo el servidor
-			conserva o maneja datos: el frontend no permite verificarlo.
-		</p>
-		<p class="muted">Usa únicamente fuentes de video autorizadas para esta prueba experimental.</p>
-	</section>
-	<div class="actions">
-		<a class="button primary" href={resolve('/sessions/new')}>Nueva sesión</a><a
-			class="button"
-			href={resolve('/settings')}>Configuración</a
-		>
-	</div>
+	<nav class="actions" aria-label="Acciones de ayuda"><a class="button" href={resolve('/sessions/new')}>Preparar fuente e iniciar asistencia</a><a class="button" href={resolve('/evidence')}>Revisar evidencia</a><a class="button" href={resolve('/reports')}>Consultar informes</a></nav>
+	<aside class="support-diagnostic"><div><strong>¿Necesitas revisar tu equipo?</strong><p>Comprueba la fuente y la conexión con el procesador.</p></div><a class="button" href={resolve('/settings')}>Diagnóstico de la estación →</a></aside>
 </div>

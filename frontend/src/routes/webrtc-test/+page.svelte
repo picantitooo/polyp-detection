@@ -2,9 +2,9 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
 
-  import { PUBLIC_API_URL } from '$env/static/public';
+  import { env } from '$env/dynamic/public';
   import { fetchIceServers, turnConnectivityError } from '$lib/webrtc/ice';
-  const API_URL = (PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+  const API_URL = (env.PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 
   // Referencias a los elementos de video.
   let localVideo: HTMLVideoElement;

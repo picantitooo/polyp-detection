@@ -1,14 +1,34 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { usePreferences } from '$lib/preferences/context.svelte';
+	import { createClientId } from '$lib/utils/client-id';
+	import { parseDetection, saveEvidence, evidenceImage, type Evidence } from '$lib/sessions/evidence';
 	import { onDestroy } from 'svelte';
 	import { goto, beforeNavigate } from '$app/navigation';
-	import { PUBLIC_API_URL } from '$env/static/public';
+	import { env } from '$env/dynamic/public';
 	import { fetchIceServers, turnConnectivityError } from '$lib/webrtc/ice';
 	import { useSessions } from '$lib/sessions/context.svelte';
-	import { formatDuration, durationSeconds } from '$lib/sessions/model';
+	import { formatDuration, durationSeconds } from '$lib/domain/sessions/session';
 	let { preparing, sessionId }: { preparing: boolean; sessionId: string } = $props();
+	let signalPanel = $state<HTMLElement>(undefined!);
+	let sourceControls = $state<HTMLButtonElement>(undefined!);
+
+	async function focusSignalSettings() {
+		if (document.fullscreenElement === signalPanel) await toggleFullscreen();
+		sourceControls.focus();
+	}
+
+	async function toggleFullscreen() {
+		try {
+			if (document.fullscreenElement === signalPanel) await document.exitFullscreen();
+			else await signalPanel.requestFullscreen();
+		} catch {
+			errorMessage = 'No se pudo abrir la vista en pantalla completa.';
+		}
+	}
 	const sessions = useSessions();
-	const apiUrl = (PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+	const preferences = usePreferences();
+	const apiUrl = (env.PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 	let sourceType = $state<'camera' | 'file'>('camera');
 	let selectedCameraId = $state('');
 	let selectedFile = $state<File | null>(null);
@@ -24,6 +44,9 @@
 	let annotated = $state(true);
 	let elapsed = $state(0);
 	let recordId = $state('');
+	let recentEvidence = $state<Evidence[]>([]);
+	let evidenceCount = $state(0);
+	let evidenceError = $state('');
 	let activeId = $derived(recordId || sessionId);
 	let record = $derived(sessions.find(activeId));
 	let localVideo = $state<HTMLVideoElement>(undefined!);
@@ -239,6 +262,22 @@
 			const pc = new RTCPeerConnection({ iceServers });
 			pendingPeer = pc;
 			peer = pc;
+			const evidenceSession = recordId;
+			const evidenceChannel = pc.createDataChannel('detection-evidence');
+			evidenceChannel.onmessage = async (event) => {
+				if (!valid()) return;
+				const detection = parseDetection(event.data);
+				if (!detection) return;
+				const item = { ...detection, id: createClientId(), sessionId: evidenceSession };
+				try {
+					await saveEvidence(item);
+					if (destroyed) return;
+					recentEvidence = [item, ...recentEvidence].slice(0, 6);
+					evidenceCount += 1;
+				} catch {
+					evidenceError = 'No se pudo guardar una evidencia en este navegador.';
+				}
+			};
 			pc.addEventListener('icecandidateerror', () => {
 				if (peer === pc && !destroyed) errorMessage = turnConnectivityError;
 			});
@@ -295,7 +334,7 @@
 			if (!valid()) return;
 			await pc.setRemoteDescription(new RTCSessionDescription(answer));
 			if (!valid()) return;
-			annotated = true;
+			annotated = preferences.value.defaultVideo === 'annotated';
 			status = `WebRTC: ${pc.connectionState}`;
 		} catch (error) {
 			if (request !== controller || destroyed) return;
@@ -359,7 +398,7 @@
 	});
 </script>
 
-<section class="procedure-workspace">
+<section class="procedure-workspace" class:signal-setup={preparing} class:live-workspace={!preparing}>
 	{#if !preparing && !record}
 		<section class="empty-state">
 			<h1>Sesión no disponible</h1>
@@ -368,24 +407,35 @@
 		</section>
 	{:else}
 		<header class="workspace-heading">
-			<h1>{preparing ? 'Preparar sesión' : 'Asistencia en vivo'}</h1>
+			{#if preparing}
+				<h1 class="visually-hidden">Verificar señal de video</h1>
+				<a class="text-link" href={resolve('/sessions')}>← Sesiones</a>
+			{:else}
+				<div class="live-breadcrumb"><a class="text-link" href={resolve('/sessions')}>← Sesiones</a><span aria-hidden="true">/</span><h1>Asistencia en curso</h1></div>
+			{/if}
 			{#if !preparing}<div class="session-indicators">
 					<span class="connection-label" class:positive={connected}
 						>{connected ? 'Conectado' : connecting ? 'Conectando' : 'Sin conexión'}</span
-					><span class="session-time" aria-label="Tiempo de sesión">{formatDuration(elapsed)}</span>
+					><span class="session-time" aria-label="Tiempo de sesión"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>{formatDuration(elapsed)}</span>
 				</div>{/if}
 		</header>
 		<div class="procedure-grid">
-			<section class="video-panel" aria-label="Visualización de video">
+			<section class="video-panel" aria-label="Visualización de video" bind:this={signalPanel}>
 				<div class="video-heading">
 					<h2>
 						{preparing
-							? 'Previsualización'
+							? 'Señal de video'
 							: annotated && connected
 								? 'Video con anotaciones'
 								: 'Video original'}
 					</h2>
 					<span>{resolution}</span>
+						<div class="signal-view-tools">
+							<button aria-label="Alternar pantalla completa" onclick={toggleFullscreen}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5" /></svg></button>
+							{#if preparing}
+							<button aria-label="Ir a configuración de señal" onclick={focusSignalSettings}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2 2 3-.2.8 2.8L20 9l-1 3 1 3-2.2 1.4-.8 2.8-3-.2-2 2-2-2-3 .2-.8-2.8L4 15l1-3-1-3 2.2-1.4L7 4.8l3 .2z" /><circle cx="12" cy="12" r="3" /></svg></button>
+							{/if}
+						</div>
 				</div>
 				<div class="video-stage">
 					<video
@@ -405,11 +455,13 @@
 						aria-label="Video procesado con anotaciones de IA"
 					></video>
 					{#if !ready}<div class="video-empty">
-							<span>Sin señal</span><small
+							{#if preparing}<svg class="signal-monitor" viewBox="0 0 64 56" aria-hidden="true"><rect x="3" y="3" width="58" height="39" rx="5" /><path d="m27 14 15 9-15 9zM32 42v9m-12 0h24" /></svg>{/if}
+							<strong>Sin señal</strong><small
 								>{preparing
 									? 'Selecciona una fuente y pulsa Previsualizar.'
 									: 'La fuente dejó de transmitir.'}</small
 							>
+							{#if preparing}<button class="signal-preview" onclick={preview} disabled={busy || (sourceType === 'file' && !selectedFile)}>{busy ? 'Preparando…' : '▷ Previsualizar'}</button>{/if}
 						</div>{/if}
 				</div>
 			</section>
@@ -419,22 +471,23 @@
 			>
 				<div class="control-content">
 					{#if preparing}
-						<h2>Fuente de video</h2>
+						<h2 class="home-card-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6m-6 0v6" /></svg>Configuración de señal</h2>
 						<div class="source-switch" role="group" aria-label="Tipo de fuente">
 							<button
+								bind:this={sourceControls}
 								aria-pressed={sourceType === 'camera'}
 								disabled={busy}
 								onclick={() => {
 									changeSource();
 									sourceType = 'camera';
-								}}>Capturadora</button
+								}}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M7 10h4m-2-2v4m5 3h3" /></svg>Capturadora</button
 							><button
 								aria-pressed={sourceType === 'file'}
 								disabled={busy}
 								onclick={() => {
 									changeSource();
 									sourceType = 'file';
-								}}>Archivo</button
+								}}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 3h9v10H3zM3 12h18" /></svg>Archivo</button
 							>
 						</div>
 						{#if sourceType === 'camera'}
@@ -465,22 +518,30 @@
 							<p class="hint">Se reproducirá en bucle.</p>
 						{/if}
 					{:else}
-						<h2>Controles</h2>
+						<section class="live-controls">
+						<h2 class="home-card-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18M8 3v6m8 0v6m-6 0v6" /></svg>Controles</h2>
 						<div class="session-control-buttons">
 							<button
 								onclick={() => (annotated = !annotated)}
 								disabled={!connected}
 								aria-pressed={!annotated}
 								>{annotated ? 'Mostrar original' : 'Mostrar anotaciones'}</button
-							>{#if connected || connecting}<button onclick={pauseAssistance}
+							>{#if connected || connecting}<button class="primary" onclick={pauseAssistance}
 									>{connecting ? 'Cancelar conexión' : 'Detener asistencia'}</button
 								>{:else}<button class="primary" onclick={startAssistance} disabled={!ready}
 									>Reintentar asistencia</button
 								>{/if}
 						</div>
+						</section>
 						<section class="events-placeholder">
-							<h3>Eventos</h3>
-							<p class="muted">Registro pendiente de implementar.</p>
+							<h2 class="home-card-title"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /></svg>Eventos</h2>
+							<p class="muted">{evidenceCount} evidencias guardadas</p>
+							{#if evidenceError}<p role="alert">{evidenceError}</p>{/if}
+							<ul class="live-evidence">
+								{#each recentEvidence as item (item.id)}
+									<li><img src={evidenceImage(item)} alt="" /><span><strong>{item.label}</strong><small>{new Date(item.capturedAt).toLocaleTimeString('es-PE')} · {Math.round(item.confidence * 100)} %</small></span></li>
+								{/each}
+							</ul>
 						</section>
 						<details class="technical-details">
 							<summary>Conexión</summary>
@@ -493,7 +554,9 @@
 						</details>
 					{/if}
 					<div class="workspace-status">
-						<p class="connection-status" role="status">{status}</p>
+						{#if preparing || preferences.value.showProcessingStatus || connecting || !connected}
+							<p class="connection-status" role="status">{status}</p>
+						{/if}
 						{#if errorMessage}<p class="error" role="alert">{errorMessage}</p>{/if}
 					</div>
 				</div>

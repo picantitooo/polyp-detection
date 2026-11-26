@@ -1,78 +1,37 @@
 <script lang="ts">
+	import colon from '$lib/assets/colon-detection.png';
 	import { resolve } from '$app/paths';
 	import { useSessions } from '$lib/sessions/context.svelte';
-	import { statusLabel } from '$lib/sessions/model';
+	import { statusLabel } from '$lib/domain/sessions/session';
 	const sessions = useSessions();
 </script>
 
-<svelte:head><title>Inicio · Polyp</title></svelte:head>
-<div class="page-heading">
-	<h1>Inicio</h1>
-	<span class="prototype-label">Prototipo experimental</span>
-</div>
+<svelte:head><title>Inicio · EndoSight</title></svelte:head>
 <div class="home-content">
-	<section class="panel home-intro" aria-labelledby="welcome-title">
-		<p class="eyebrow">Asistencia en colonoscopia</p>
-		<h2 id="welcome-title">Prepara la fuente. Revisa la asistencia visual.</h2>
-		<p>Explora la visualización de video endoscópico y sus anotaciones en una sesión de prueba.</p>
-		<p class="muted">
-			Apoyo experimental a la visualización. No reemplaza el criterio clínico ni ofrece un
-			diagnóstico autónomo.
-		</p>
-		<div class="actions">
-			<a class="button primary" href={resolve('/sessions/new')}>Nueva sesión</a><a
-				class="text-link"
-				href={resolve('/sessions')}>Ver sesiones</a
-			>
-		</div>
-	</section>
-	<div class="entry-grid">
-		<section class="panel entry-card">
-			<span class="eyebrow">01 · Preparación</span>
-			<h2>Preparar asistencia</h2>
-			<p class="muted">
-				Conecta una cámara o elige un video autorizado y comprueba la vista previa antes de iniciar.
-			</p>
-			<a class="text-link" href={resolve('/sessions/new')}>Preparar fuente →</a>
-		</section>
-		<section class="panel entry-card">
-			<span class="eyebrow">02 · Orientación</span>
-			<h2>Guía rápida</h2>
-			<p class="muted">
-				Conoce los pasos, los estados de conexión y qué hacer si la asistencia se interrumpe.
-			</p>
-			<a class="text-link" href={resolve('/help')}>Consultar ayuda →</a>
-		</section>
-		<section class="panel entry-card">
-			<span class="eyebrow">03 · Comodidad</span>
-			<h2>Configuración visual</h2>
-			<p class="muted">
-				Ajusta tema, contraste, tamaño de texto, movimiento y paleta para esta pantalla.
-			</p>
-			<a class="text-link" href={resolve('/settings')}>Personalizar interfaz →</a>
-		</section>
-	</div>
-	{#if sessions.records.length}
-		<section class="panel" aria-labelledby="recent-sessions">
-			<h2 id="recent-sessions">Sesiones recientes</h2>
-			<p class="hint">Disponibles en esta pestaña hasta recargar la página.</p>
+	<section class="dashboard-welcome"><div><h1>Gestión de sesiones</h1><p>Prepara la señal de video y consulta las sesiones de asistencia endoscópica.</p><div class="actions"><a class="button primary" href={resolve('/sessions/new')}>Nueva sesión</a><a class="button hero-secondary" href={resolve('/sessions')}>Ver sesiones</a></div></div><img class="dashboard-colon" src={colon} alt=""/></section>
+ <div class="metric-grid">{#each ['prepared','active','finished'] as status}<section class="panel metric-card"><div><span>{status === 'prepared' ? 'En preparación' : status === 'active' ? 'En curso' : 'Finalizadas'}</span><strong>{sessions.records.filter(record => record.status === status).length}</strong></div></section>{/each}</div>
+ <div class="home-lower">
+	<section class="panel">
+		<div class="page-heading"><h2 class="home-card-title"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l4 2" /></svg>Sesiones recientes</h2><a class="text-link" href={resolve('/sessions')}>Ver historial <span aria-hidden="true">→</span></a></div>
+		{#if sessions.records.length}
 			<ul class="recent-sessions">
-				{#each sessions.records.slice(0, 3) as session (session.id)}<li>
+				{#each sessions.records.slice(0, 6) as session (session.id)}
+					<li>
 						<div>
-							<a class="text-link" href={resolve('/sessions/[id]', { id: session.id })}
-								>Sesión {session.id.slice(0, 8)}</a
-							>
-							<p class="hint">
-								{new Date(session.createdAt).toLocaleString('es-PE')} · {session.sourceType ===
-								'camera'
-									? 'Capturadora'
-									: 'Video'}
-							</p>
+							<a class="text-link" href={resolve('/sessions/[id]', { id: session.id })}>Sesión {session.id.slice(0, 8)}</a>
+							<p class="hint">{new Date(session.createdAt).toLocaleString('es-PE')} · {session.sourceType === 'camera' ? 'Capturadora' : 'Video'}</p>
 						</div>
 						<span class="badge">{statusLabel(session.status)}</span>
-					</li>{/each}
+					</li>
+				{/each}
 			</ul>
-			<a class="text-link" href={resolve('/sessions')}>Ver todas las sesiones</a>
-		</section>
-	{/if}
+		{:else}
+			<div class="dashboard-empty">
+				<svg class="empty-monitor" viewBox="0 0 64 56" aria-hidden="true"><rect x="3" y="3" width="58" height="39" rx="7" /><path d="m27 14 15 9-15 9zM32 42v9m-12 0h24" /></svg>
+				<h2>Aún no hay sesiones</h2><p class="muted">El historial aparecerá aquí tras registrar una sesión.</p>
+			</div>
+		{/if}
+	</section>
+	<aside class="panel workflow"><h2>Revisión de sesiones</h2><div class="actions"><a class="button" href={resolve('/findings')}>Revisar hallazgos</a><a class="button" href={resolve('/reports')}>Abrir informes</a></div></aside></div>
+	<p class="hint">Prototipo de investigación. La asistencia visual no sustituye el criterio clínico.</p>
 </div>
